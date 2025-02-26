@@ -16,7 +16,6 @@ class ConcurrentQueue:
         dummy = Node(None)
         self.head = dummy
         self.tail = dummy
-        # Two locks: one for head, one for tail
         self.head_lock = threading.Lock()
         self.tail_lock = threading.Lock()
 
@@ -25,7 +24,6 @@ class ConcurrentQueue:
         Insert a new node at the tail of the queue.
         """
         new_node = Node(value)
-        # Lock the tail while updating
         self.tail_lock.acquire()
         try:
             self.tail.next = new_node
@@ -38,21 +36,16 @@ class ConcurrentQueue:
         Remove a node from the head of the queue.
         Returns the value or None if the queue is empty.
         """
-        # Lock the head while updating
         self.head_lock.acquire()
         try:
             old_head = self.head
             new_head = old_head.next
             if new_head is None:
-                # Queue is empty
                 return None
             self.head = new_head
             return new_head.value
         finally:
             self.head_lock.release()
-
-# -----------------------------------------------------------------------
-# Example usage and a simple benchmark test:
 
 def producer(q, count):
     """Enqueue 'count' random integers into the queue."""
@@ -72,36 +65,33 @@ def consumer(q, count, collected):
                 time.sleep(0.0001)  # small wait to avoid busy spin
         collected.append(val)
 
-if __name__ == "__main__":
-    # Example: 2 producers, 2 consumers, each producing/consuming 5000 items
-    NUM_PRODUCERS = 2
-    NUM_CONSUMERS = 2
-    ITEMS_PER_PRODUCER = 5000
-
+def run_benchmark(num_producers, num_consumers, items_per_producer):
+    """
+    Creates a queue, spawns num_producers producers and num_consumers consumers,
+    each producer enqueuing 'items_per_producer' items, and measures the time.
+    Returns (total_items_consumed, elapsed_time).
+    """
     q = ConcurrentQueue()
-    
-    # Prepare threads
+
     producers = []
-    for _ in range(NUM_PRODUCERS):
-        t = threading.Thread(target=producer, args=(q, ITEMS_PER_PRODUCER))
+    for _ in range(num_producers):
+        t = threading.Thread(target=producer, args=(q, items_per_producer))
         producers.append(t)
-    
+
     collected_items = []
     consumers_ = []
-    for _ in range(NUM_CONSUMERS):
-        t = threading.Thread(target=consumer, args=(q, ITEMS_PER_PRODUCER, collected_items))
+ 
+    for _ in range(num_consumers):
+        t = threading.Thread(target=consumer, args=(q, items_per_producer, collected_items))
         consumers_.append(t)
 
-    # Start timing
     start_time = time.time()
 
-    # Start threads
     for t in producers:
         t.start()
     for t in consumers_:
         t.start()
 
-    # Join threads
     for t in producers:
         t.join()
     for t in consumers_:
@@ -109,7 +99,31 @@ if __name__ == "__main__":
 
     end_time = time.time()
     elapsed = end_time - start_time
+    total_consumed = len(collected_items)
 
-    print(f"All producers/consumers have finished.")
-    print(f"Total items consumed: {len(collected_items)}")
-    print(f"Elapsed time: {elapsed:.4f} seconds")
+    return total_consumed, elapsed
+
+if __name__ == "__main__":
+    # We’ll test multiple concurrency levels to see how performance scales:
+    workloads = [
+        (1, 1),
+        (2, 2),
+        (4, 4),
+        (8, 8)
+    ]
+    
+    ITEMS_PER_PRODUCER = 5000
+
+    print("ConcurrentQueue Benchmark")
+    print(f"Items per producer: {ITEMS_PER_PRODUCER}")
+    print("=============================================")
+    print("Producers | Consumers | Total Items Consumed | Elapsed (s) | Throughput (ops/s)")
+    print("-------------------------------------------------------------------------")
+
+    for (p, c) in workloads:
+        total_items, elapsed = run_benchmark(p, c, ITEMS_PER_PRODUCER)
+      
+        throughput = total_items / elapsed if elapsed > 0 else float('inf')
+        
+        print(f"{p:9d} | {c:9d} | {total_items:21d} | {elapsed:10.4f} | {throughput:14.2f}")
+
